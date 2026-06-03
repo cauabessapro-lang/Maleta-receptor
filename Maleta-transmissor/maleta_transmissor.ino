@@ -38,8 +38,8 @@ void setup() {
     Mcu.begin(HELTEC_BOARD, SLOW_CLK_TPYE);
     
     // Configura os pinos dos relés como saída
-    pinMode(PIN_BTN_1, OUTPUT);
-    pinMode(PIN_BTN_2, OUTPUT);
+    pinMode(PIN_BTN_1, INPUT_PULLUP);
+    pinMode(PIN_BTN_2, INPUT_PULLUP);
 
     // Vincula a função OnTxDone aos eventos de TX do rádio
     RadioEvents.TxDone = OnTxDone;
