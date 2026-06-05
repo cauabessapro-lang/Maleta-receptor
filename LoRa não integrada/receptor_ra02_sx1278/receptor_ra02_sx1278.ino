@@ -1,44 +1,7 @@
 /**
  * ============================================================
- *  receptor_ra02_sx1278.ino
- *  Receptor LoRa — Controle de Válvulas de Foguete
- * ============================================================
- *
- *  Hardware:
- *    - ESP32-WROOM
- *    - Ra-02 (SX1278) @ 433 MHz via SPI (módulo externo)
- *    - Módulo de 4 Relés com Optoacoplador (Active LOW)
- *
- *  Protocolo (1 byte por pacote):
- *    Bit 0 → Abastecimento  (1 = Aberta, 0 = Fechada)
- *    Bit 1 → Vent           (1 = Aberta, 0 = Fechada)
- *    Bit 2 → Purga Tanque   (1 = Aberta, 0 = Fechada)
- *    Bit 3 → Câmara Comb.   (1 = Aberta, 0 = Fechada)
- *
- *  Failsafe (sem sinal por 3s):
- *    Abastecimento → FECHADA
- *    Vent          → FECHADA
- *    Purga Tanque  → ABERTA
- *    Câmara Comb.  → FECHADA
- *    Byte de failsafe = 0b00000100 = 0x04
- *
- *  Pinagem ESP32-WROOM ↔ Ra-02:
- *    Ra-02 NSS  → GPIO 5
- *    Ra-02 SCK  → GPIO 18
- *    Ra-02 MISO → GPIO 19
- *    Ra-02 MOSI → GPIO 23
- *    Ra-02 RST  → GPIO 14
- *    Ra-02 DIO0 → GPIO 2
- *    Ra-02 3.3V → 3V3
- *    Ra-02 GND  → GND
- *
- *  Pinagem ESP32-WROOM ↔ Módulo de Relés:
- *    IN1 (Abastecimento) → GPIO 25
- *    IN2 (Vent)          → GPIO 26
- *    IN3 (Purga Tanque)  → GPIO 27
- *    IN4 (Câmara Comb.)  → GPIO 32
- *
- *  Biblioteca necessária: RadioLib (instalar via Arduino Library Manager)
+ * maleta_receptor.ino
+ * Receptor LoRa — Controle de Válvulas de Foguete
  * ============================================================
  */
 
@@ -78,16 +41,12 @@
 //  Failsafe
 // ============================================================
 #define FAILSAFE_TIMEOUT_MS     3000    // Milissegundos sem pacote → failsafe
-
-// Byte de failsafe: só Purga Tanque aberta (bit 2 = 1)
-// 0b00000100 = 0x04
-#define FAILSAFE_BYTE           0x04
+#define FAILSAFE_BYTE           0x04    // 0b00000100 -> Só purga aberta
 
 // ============================================================
-//  Rádio — SPI customizado para os pinos do VSPI
+//  Rádio — Instanciado usando o barramento SPI padrão (VSPI)
 // ============================================================
-SPIClass spiLora(VSPI);
-SX1278 radio = new Module(LORA_NSS, LORA_DIO0, LORA_RST, RADIOLIB_NC, spiLora);
+SX1278 radio = new Module(LORA_NSS, LORA_DIO0, LORA_RST, RADIOLIB_NC);
 
 // ============================================================
 //  Variáveis globais de controle
@@ -98,23 +57,19 @@ bool emFailsafe               = false;  // Estado atual do sistema
 
 // ============================================================
 //  Callback de interrupção — chamado pelo DIO0 ao receber pacote
-//  IRAM_ATTR garante que a função fica na RAM (mais rápido no ESP32)
 // ============================================================
-void IRAM_ATTR onPacoteRecebido() {
+void onPacoteRecebido() {
     pacoteRecebido = true;
 }
 
 // ============================================================
 //  Aplica o estado das válvulas com base no byte recebido
-//
-//  Active LOW: relé ATIVADO   = pino LOW  → válvula ABERTA  (bit = 1)
-//              relé DESATIVADO = pino HIGH → válvula FECHADA (bit = 0)
 // ============================================================
 void aplicarEstadoValvulas(uint8_t estado) {
     digitalWrite(PIN_RELE_ABASTECIMENTO, ((estado >> 0) & 1) ? LOW : HIGH);
     digitalWrite(PIN_RELE_VENT,          ((estado >> 1) & 1) ? LOW : HIGH);
     digitalWrite(PIN_RELE_PURGA,         ((estado >> 2) & 1) ? LOW : HIGH);
-    digitalWrite(PIN_RELE_COMBUSTAO,     ((estado >> 3) & 1) ? LOW : HIGH);
+    digitalWrite(PIN_RELE_COMBUSTAO,      ((estado >> 3) & 1) ? LOW : HIGH);
 }
 
 // ============================================================
@@ -136,7 +91,7 @@ void logEstadoValvulas(uint8_t estado) {
 // ============================================================
 //  Ativa o estado de failsafe (chamado após timeout)
 // ============================================================
-void ativarFailsafe() {
+void activarFailsafe() {
     if (!emFailsafe) {
         emFailsafe = true;
         Serial.println(F("\n⚠️  FAILSAFE ATIVADO — Sem sinal ha mais de 3s!"));
@@ -152,7 +107,7 @@ void ativarFailsafe() {
 // ============================================================
 void setup() {
     Serial.begin(115200);
-    delay(500); // Aguarda Serial estabilizar
+    delay(500); 
 
     Serial.println(F("\n════════════════════════════════════════"));
     Serial.println(F("   Receptor LoRa — Controle de Valvulas  "));
@@ -170,8 +125,8 @@ void setup() {
     aplicarEstadoValvulas(FAILSAFE_BYTE);
     logEstadoValvulas(FAILSAFE_BYTE);
 
-    // --- Inicializa SPI nos pinos do VSPI ---
-    spiLora.begin(LORA_SCK, LORA_MISO, LORA_MOSI, LORA_NSS);
+    // --- Inicializa SPI nos pinos do VSPI padrão ---
+    SPI.begin(LORA_SCK, LORA_MISO, LORA_MOSI, LORA_NSS);
 
     // --- Inicializa o rádio LoRa ---
     Serial.print(F("\n[LORA] Inicializando Ra-02 (SX1278)... "));
@@ -188,16 +143,10 @@ void setup() {
     if (resultado != RADIOLIB_ERR_NONE) {
         Serial.print(F("FALHA! Codigo de erro: "));
         Serial.println(resultado);
-        Serial.println(F("[ERRO] Verifique a fiacao SPI e os pinos NSS/RST/DIO0."));
-        Serial.println(F("[ERRO] Sistema travado. Reinicie apos corrigir o problema."));
-        while (true) { delay(1000); } // Trava — sem rádio o sistema não opera
+        while (true) { delay(1000); } 
     }
 
     Serial.println(F("OK!"));
-    Serial.print(F("[LORA] Frequencia : ")); Serial.print(LORA_FREQUENCIA); Serial.println(F(" MHz"));
-    Serial.print(F("[LORA] Bandwidth  : ")); Serial.print(LORA_BANDWIDTH);  Serial.println(F(" kHz"));
-    Serial.print(F("[LORA] SF         : ")); Serial.println(LORA_SPREADING_FACTOR);
-    Serial.print(F("[LORA] Sync Word  : 0x")); Serial.println(LORA_SYNC_WORD, HEX);
 
     // --- Configura interrupção no DIO0 (borda de subida) ---
     radio.setDio0Action(onPacoteRecebido, RISING);
@@ -210,9 +159,7 @@ void setup() {
         while (true) { delay(1000); }
     }
 
-    // Marca o timestamp inicial do failsafe
     ultimoPacoteMs = millis();
-
     Serial.println(F("\n[OK] Aguardando pacotes..."));
     Serial.println(F("════════════════════════════════════════\n"));
 }
@@ -224,7 +171,7 @@ void loop() {
 
     // ── Chegou um novo pacote? ──────────────────────────────
     if (pacoteRecebido) {
-        pacoteRecebido = false; // Limpa a flag antes de processar
+        pacoteRecebido = false; 
 
         uint8_t buffer[1];
         int resultado = radio.readData(buffer, 1);
@@ -232,25 +179,20 @@ void loop() {
         if (resultado == RADIOLIB_ERR_NONE) {
             uint8_t estadoValvulas = buffer[0];
 
-            // Atualiza timer do failsafe e sai do modo failsafe
             ultimoPacoteMs = millis();
             emFailsafe = false;
 
-            // Aplica o novo estado às válvulas
             aplicarEstadoValvulas(estadoValvulas);
 
-            // Loga informações do pacote recebido
             Serial.println(F("📡 Pacote recebido!"));
             Serial.print(F("   RSSI  : ")); Serial.print(radio.getRSSI()); Serial.println(F(" dBm"));
-            Serial.print(F("   SNR   : ")); Serial.print(radio.getSNR());  Serial.println(F(" dB"));
             Serial.print(F("   Byte  : 0b"));
 
-            // Imprime o byte em binário com 8 dígitos
             for (int i = 7; i >= 0; i--) {
                 Serial.print((estadoValvulas >> i) & 1);
             }
             Serial.print(F(" (0x"));
-            if (estadoValvulas < 0x10) Serial.print(F("0")); // zero à esquerda
+            if (estadoValvulas < 0x10) Serial.print(F("0")); 
             Serial.print(estadoValvulas, HEX);
             Serial.println(F(")"));
 
@@ -259,17 +201,13 @@ void loop() {
 
         } else if (resultado == RADIOLIB_ERR_CRC_MISMATCH) {
             Serial.println(F("[AVISO] Pacote recebido com erro de CRC — descartado."));
-        } else {
-            Serial.print(F("[ERRO] Falha ao ler pacote. Codigo: "));
-            Serial.println(resultado);
         }
 
-        // Volta ao modo de recepção contínua após processar
-        radio.startReceive();
+        radio.startReceive(); // Volta ao modo de recepção contínua
     }
 
     // ── Verificação de failsafe por timeout ─────────────────
     if ((millis() - ultimoPacoteMs) >= FAILSAFE_TIMEOUT_MS) {
-        ativarFailsafe();
+        activarFailsafe();
     }
 }
