@@ -1,12 +1,12 @@
 /**
  * ============================================================
- *  maleta_receptor.ino
+ *  receptor_ra02_sx1278.ino
  *  Receptor LoRa — Controle de Válvulas de Foguete
  * ============================================================
  *
  *  Hardware:
  *    - ESP32-WROOM
- *    - Ra-02 (SX1278) @ 433 MHz via SPI
+ *    - Ra-02 (SX1278) @ 433 MHz via SPI (módulo externo)
  *    - Módulo de 4 Relés com Optoacoplador (Active LOW)
  *
  *  Protocolo (1 byte por pacote):
